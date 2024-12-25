@@ -34,6 +34,8 @@ from camisole.utils import cached_classmethod
 LIBC = ctypes.CDLL('libc.so.6')
 LIBC.strsignal.restype = ctypes.c_char_p
 
+boxset = set()
+
 
 def signal_message(signal: int) -> str:
     return LIBC.strsignal(signal).decode()
@@ -120,13 +122,15 @@ class Isolator:
 
     async def __aenter__(self):
         busy = {int(p.name) for p in self.isolate_conf.root.iterdir()}
-        avail = set(range(self.isolate_conf.max_boxes)) - busy
+        avail = set(range(self.isolate_conf.max_boxes)) - busy - boxset
         while avail:
             self.box_id = avail.pop()
+            boxset.add(self.box_id)
             self.cmd_base = ['isolate', '--box-id', str(self.box_id), '--cg']
             cmd_init = self.cmd_base + ['--init']
             retcode, stdout, stderr = await communicate(cmd_init)
             if retcode == 2 and b"already exists" in stderr:
+                boxset.remove(self.box_id)
                 continue
             if retcode != 0:  # noqa
                 raise RuntimeError("{} returned code {}: “{}”".format(
@@ -194,6 +198,7 @@ class Isolator:
                 cmd_cleanup, retcode, stderr))
 
         self.meta_file.__exit__(exc, value, tb)
+        boxset.remove(self.box_id)
 
     async def run(self, cmdline, data=None, env=None,
                   merge_outputs=False, **kwargs):
