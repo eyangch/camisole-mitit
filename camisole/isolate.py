@@ -119,6 +119,9 @@ class Isolator:
         self.isolate_stdout = None
         self.isolate_stderr = None
 
+        self.cmd_run = None
+        self.merge_outputs = False
+
     async def __aenter__(self):
         async with boxlock:
             busy = {int(p.name) for p in self.isolate_conf.root.iterdir()}
@@ -142,6 +145,28 @@ class Isolator:
         return self
 
     async def __aexit__(self, exc, value, tb):
+        self.stdout = b''
+        self.stderr = b''
+        if self.isolate_retcode >= 2:  # Internal error
+            raise IsolateInternalError(
+                self.cmd_run,
+                self.isolate_stdout,
+                self.isolate_stderr
+            )
+        try:
+            self.stdout = (self.path / self.stdout_file).read_bytes()
+            if not self.merge_outputs:
+                self.stderr = (self.path / self.stderr_file).read_bytes()
+        except (IOError, PermissionError) as e:
+            # Something went wrong, isolate was killed before changing the
+            # permissions or unreadable stdout/stderr
+            raise IsolateInternalError(
+                self.cmd_run,
+                self.isolate_stdout,
+                self.isolate_stderr,
+                message="Error while reading stdout/stderr: " + e.message,
+            )
+
         meta_defaults = {
             'cg-mem': 0,
             'cg-oom-killed': 0,
@@ -197,8 +222,7 @@ class Isolator:
 
         self.meta_file.__exit__(exc, value, tb)
 
-    async def run(self, cmdline, data=None, env=None,
-                  merge_outputs=False, **kwargs):
+    async def generate_cmd(self, cmdline, env=None, interactive=False):
         cmd_run = self.cmd_base[:]
         cmd_run += list(itertools.chain(
             *[('-d', d) for d in self.allowed_dirs]))
@@ -221,12 +245,14 @@ class Isolator:
         for key, value in (env or {}).items():
             cmd_run += ['--env={}={}'.format(key, value)]
 
-        cmd_run += [
-            '--meta={}'.format(self.meta_file.name),
-            '--stdout={}'.format(self.stdout_file),
-        ]
+        cmd_run += ['--meta={}'.format(self.meta_file.name)]
+        
+        if not interactive:
+            cmd_run += ['--stdout={}'.format(self.stdout_file)]
+        else:
+            (self.path / self.stdout_file).touch()
 
-        if merge_outputs:
+        if self.merge_outputs:
             cmd_run.append('--stderr-to-stdout')
         else:
             cmd_run.append('--stderr={}'.format(self.stderr_file))
@@ -234,30 +260,57 @@ class Isolator:
         cmd_run += ['--run', '--']
         cmd_run += cmdline
 
-        self.isolate_retcode, self.isolate_stdout, self.isolate_stderr = (
-            await communicate(cmd_run, data=data, **kwargs))
+        self.cmd_run = cmd_run
 
-        self.stdout = b''
-        self.stderr = b''
-        if self.isolate_retcode >= 2:  # Internal error
-            raise IsolateInternalError(
-                cmd_run,
-                self.isolate_stdout,
-                self.isolate_stderr
-            )
-        try:
-            self.stdout = (self.path / self.stdout_file).read_bytes()
-            if not merge_outputs:
-                self.stderr = (self.path / self.stderr_file).read_bytes()
-        except (IOError, PermissionError) as e:
-            # Something went wrong, isolate was killed before changing the
-            # permissions or unreadable stdout/stderr
-            raise IsolateInternalError(
-                cmd_run,
-                self.isolate_stdout,
-                self.isolate_stderr,
-                message="Error while reading stdout/stderr: " + e.message,
-            )
+    async def run(self, cmdline, data=None, env=None,
+                  merge_outputs=False, **kwargs):
+        self.merge_outputs = merge_outputs
+        
+        await self.generate_cmd(cmdline, env)
+
+        self.isolate_retcode, self.isolate_stdout, self.isolate_stderr = (
+            await communicate(self.cmd_run, data=data, **kwargs))
+
+    @staticmethod
+    async def run_interactive(prog_isolator, interact_isolator, cmdline_prog, cmdline_interact, env_prog=None, env_interact=None, **kwargs):
+        await prog_isolator.generate_cmd(cmdline_prog, env_prog, interactive=True)
+        await interact_isolator.generate_cmd(cmdline_interact, env_interact, interactive=True)
+        logging.debug('Running Interactive Program %s', ' '.join(str(a) for a in prog_isolator.cmd_run))
+        logging.debug('Running Interactive Interaction %s', ' '.join(str(a) for a in interact_isolator.cmd_run))
+        proc_prog = await asyncio.create_subprocess_exec(
+            *prog_isolator.cmd_run, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, **kwargs)
+        proc_interact = await asyncio.create_subprocess_exec(
+            *interact_isolator.cmd_run, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, **kwargs)
+        async def pipe_interact_to_prog():
+            while True:
+                line = await proc_interact.stdout.readline()
+                if not line:  # EOF
+                    break
+                proc_prog.stdin.write(line)
+                await proc_prog.stdin.drain()
+            proc_prog.stdin.close()
+        async def pipe_prog_to_interact():
+            while True:
+                line = await proc_prog.stdout.readline()
+                if not line:  # EOF
+                    break
+                proc_interact.stdin.write(line)
+                await proc_interact.stdin.drain()
+            proc_interact.stdin.close()
+        await asyncio.gather(pipe_interact_to_prog(), pipe_prog_to_interact())
+        stdout_prog, stderr_prog = await proc_prog.communicate()
+        stdout_interact, stderr_interact = await proc_interact.communicate()
+        retcode_prog = await proc_prog.wait()
+        retcode_interact = await proc_interact.wait()
+        prog_isolator.isolate_retcode, prog_isolator.isolate_stdout, prog_isolator.isolate_stderr = (
+            retcode_prog, stdout_prog, stderr_prog
+        )
+        interact_isolator.isolate_retcode, interact_isolator.isolate_stdout, interact_isolator.isolate_stderr = (
+            retcode_interact, stdout_interact, stderr_interact
+        )
+
 
     @cached_classmethod
     def isolate_conf(cls):

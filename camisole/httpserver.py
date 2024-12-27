@@ -9,6 +9,7 @@ import camisole.languages
 import camisole.ref
 import camisole.schema
 import camisole.system
+import camisole.models
 
 TYPE_JSON = 'application/json'
 TYPE_MSGPACK = 'application/msgpack'
@@ -112,6 +113,28 @@ async def run_handler(request, data):
 
     return await lang.run()
 
+@json_msgpack_handler
+async def interactive_handler(request, data):
+    try:
+        camisole.schema.validate_run(data['prog'])
+        camisole.schema.validate_run(data['interact'])
+    except camisole.schema.ValidationError as e:
+        return {'success': False, 'error': f"malformed payload: {e}"}
+
+    lang_name_prog = data['prog']['lang'].lower()
+    lang_name_interact = data['interact']['lang'].lower()
+    try:
+        lang_prog = camisole.languages.by_name(lang_name_prog)(data['prog'])
+    except KeyError:
+        raise RuntimeError('Incorrect Program language {}'.format(lang_name))
+
+    try:
+        lang_interact = camisole.languages.by_name(lang_name_interact)(data['interact'])
+    except KeyError:
+        raise RuntimeError('Incorrect Interactor language {}'.format(lang_name))
+
+    lang = camisole.models.InteractiveLang(lang_prog, lang_interact)
+    return await lang.run()
 
 @json_msgpack_handler
 async def test_handler(request, data):
@@ -137,12 +160,13 @@ async def languages_handler(request, data):
 
 async def default_handler(request):
     return aiohttp.web.Response(
-        text="Welcome to Camisole. Use the /run endpoint to run some code!\n")
+        text="Welcome to Camisole. Use the /run endpoint to run some code!. Use the /interactive endpoint to run an interactive problem.\n")
 
 
 def make_application(**kwargs):
     app = aiohttp.web.Application(**kwargs)
     app.router.add_route('POST', '/run', run_handler)
+    app.router.add_route('POST', '/interactive', interactive_handler)
     app.router.add_route('*', '/', default_handler)
     app.router.add_route('*', '/languages', languages_handler)
     app.router.add_route('*', '/system', system_handler)

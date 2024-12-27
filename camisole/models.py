@@ -302,3 +302,69 @@ class PipelineLang(Lang, register=False):
 
     async def compile(self):
         raise NotImplementedError()
+
+class InteractiveLang:
+    def __init__(self, lang_prog, lang_interact):
+        self.lang_prog = lang_prog
+        self.lang_interact = lang_interact
+    
+    async def run(self):
+        result_prog = {}
+        result_interact = {}
+        binary_prog = await self.lang_prog.run_compilation(result_prog)
+        binary_interact = await self.lang_interact.run_compilation(result_interact)
+        if not binary_prog or not binary_interact:
+            return {'prog': result_prog, 'interact': result_interact}
+        await self.run_tests(binary_prog, binary_interact, result_prog, result_interact)
+        return {'prog': result_prog, 'interact': result_interact}
+        
+    async def execute(self, binary_prog, binary_interact, opts=None):
+        if opts is None:
+            opts = {}
+        opts_prog = {**self.lang_prog.opts.get('execute', {}), **opts}
+        opts_interact = {**self.lang_interact.opts.get('execute', {}), **opts}
+
+        input_data = None
+        if 'stdin' in opts and opts['stdin']:
+            input_data = camisole.utils.force_bytes(opts['stdin'])
+
+        isolator_prog = camisole.isolate.Isolator(
+            opts_prog, allowed_dirs=self.lang_prog.get_allowed_dirs())
+        isolator_interact = camisole.isolate.Isolator(
+            opts_interact, allowed_dirs=self.lang_interact.get_allowed_dirs())
+        async with isolator_prog, isolator_interact:
+            wd_prog = isolator_prog.path
+            wd_interact = isolator_interact.path
+            env_prog = {'HOME': self.lang_prog.filter_box_prefix(str(wd_prog))}
+            env_interact = {'HOME': self.lang_interact.filter_box_prefix(str(wd_interact))}
+            compiled_prog = self.lang_prog.write_binary(Path(wd_prog), binary_prog)
+            compiled_interact = self.lang_interact.write_binary(Path(wd_interact), binary_interact)
+            input_file = Path(wd_interact) / 'input.txt'
+            with input_file.open('wb') as f:
+                f.write(input_data)
+            env_prog = {**env_prog, **(self.lang_prog.interpreter.env if self.lang_prog.interpreter else {})}
+            env_interact = {**env_interact, **(self.lang_interact.interpreter.env if self.lang_interact.interpreter else {})} 
+            await camisole.isolate.Isolator.run_interactive(isolator_prog, isolator_interact, self.lang_prog.execute_command(str(compiled_prog)), self.lang_interact.execute_command(str(compiled_interact)) + [str(input_file)], env_prog, env_interact)
+
+        return (isolator_prog.isolate_retcode, isolator_prog.info, isolator_interact.isolate_retcode, isolator_interact.info)
+
+    async def run_tests(self, binary_prog, binary_interact, result_prog, result_interact):
+        tests = self.lang_interact.opts.get('tests', [{}])
+        if tests:
+            result_prog['tests'] = [{}] * len(tests)
+            result_interact['tests'] = [{}] * len(tests)
+        for i, test in enumerate(tests):
+            prog_retcode, prog_info, interact_retcode, interact_info = await self.execute(binary_prog, binary_interact, test)
+            result_prog['tests'][i] = {
+                'name': test.get('name', 'test{:03d}'.format(i)),
+                **prog_info
+            }
+            result_interact['tests'][i] = {
+                'name': test.get('name', 'test{:03d}'.format(i)),
+                **interact_info
+            }
+
+            if (prog_retcode != 0 or interact_retcode != 0) and (
+                    test.get('fatal', False) or
+                    self.lang_interact.opts.get('all_fatal', False)):
+                break
