@@ -288,6 +288,8 @@ class Isolator:
                 line = await proc_interact.stdout.readline()
                 if not line:  # EOF
                     break
+                if proc_prog.stdin.is_closing():
+                    break
                 proc_prog.stdin.write(line)
                 await proc_prog.stdin.drain()
             proc_prog.stdin.close()
@@ -295,6 +297,8 @@ class Isolator:
             while True:
                 line = await proc_prog.stdout.readline()
                 if not line:  # EOF
+                    break
+                if proc_interact.stdin.is_closing():
                     break
                 proc_interact.stdin.write(line)
                 await proc_interact.stdin.drain()
