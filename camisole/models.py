@@ -344,7 +344,6 @@ class InteractiveLang:
                 f.write(input_data)
             env_prog = {**env_prog, **(self.lang_prog.interpreter.env if self.lang_prog.interpreter else {})}
             env_interact = {**env_interact, **(self.lang_interact.interpreter.env if self.lang_interact.interpreter else {})}
-            print("HI")
             await camisole.isolate.Isolator.run_interactive(isolator_prog, isolator_interact, self.lang_prog.execute_command(str(compiled_prog)), self.lang_interact.execute_command(str(compiled_interact)) + ['input.txt'], env_prog, env_interact)
 
         return (isolator_prog.isolate_retcode, isolator_prog.info, isolator_interact.isolate_retcode, isolator_interact.info)
