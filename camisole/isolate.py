@@ -154,9 +154,9 @@ class Isolator:
                 self.isolate_stderr
             )
         try:
-            self.stdout = (self.path / self.stdout_file).read_bytes()
+            self.stdout = (self.path / self.stdout_file).read_bytes()[:conf['max-stdout-size']]
             if not self.merge_outputs:
-                self.stderr = (self.path / self.stderr_file).read_bytes()
+                self.stderr = (self.path / self.stderr_file).read_bytes()[:conf['max-stderr-size']]
         except (IOError, PermissionError) as e:
             # Something went wrong, isolate was killed before changing the
             # permissions or unreadable stdout/stderr

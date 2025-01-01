@@ -9,6 +9,10 @@ allowed-dirs: []
 # camisole HTTP server maximum body (request payload) size in bytes
 max-body-size: 50000000  # 50 MB
 
+# max output size to be returned in bytes (should be less than max-body-size)
+max-stdout-size: 20000000  # 20 MB
+max-stderr-size: 20000000  # 20 MB
+
 # extra directories to append (in this order) to PYTHONPATH
 syspath:
   - ~/.local/share/camisole/languages
