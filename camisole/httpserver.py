@@ -22,7 +22,7 @@ class BinaryJsonEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, bytes):
             try:
-                return o.decode()
+                return o.decode(errors='replace')
             except UnicodeDecodeError:
                 raise TypeError() from None
         return super().default(o)
