@@ -283,27 +283,16 @@ class Isolator:
         proc_interact = await asyncio.create_subprocess_exec(
             *interact_isolator.cmd_run, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, **kwargs)
-        async def pipe_interact_to_prog():
+        async def pipe_stdout_to_stdin(stdout, stdin):
             while True:
-                line = await proc_interact.stdout.readline()
-                if not line:  # EOF
+                line = await stdout.read(1024)
+                if not line or stdin.is_closing():
                     break
-                if proc_prog.stdin.is_closing():
-                    break
-                proc_prog.stdin.write(line)
-                await proc_prog.stdin.drain()
-            proc_prog.stdin.close()
-        async def pipe_prog_to_interact():
-            while True:
-                line = await proc_prog.stdout.readline()
-                if not line:  # EOF
-                    break
-                if proc_interact.stdin.is_closing():
-                    break
-                proc_interact.stdin.write(line)
-                await proc_interact.stdin.drain()
-            proc_interact.stdin.close()
-        await asyncio.gather(pipe_interact_to_prog(), pipe_prog_to_interact())
+                stdin.write(line)
+                await stdin.drain()
+            stdin.close()
+        await asyncio.gather(pipe_stdout_to_stdin(proc_interact.stdout, proc_prog.stdin),
+                             pipe_stdout_to_stdin(proc_prog.stdout, proc_interact.stdin))
         stdout_prog, stderr_prog = await proc_prog.communicate()
         stdout_interact, stderr_interact = await proc_interact.communicate()
         retcode_prog = await proc_prog.wait()
