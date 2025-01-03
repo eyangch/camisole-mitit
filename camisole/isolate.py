@@ -35,6 +35,7 @@ LIBC = ctypes.CDLL('libc.so.6')
 LIBC.strsignal.restype = ctypes.c_char_p
 
 boxlock = asyncio.Lock()
+boxset = set()
 
 def signal_message(signal: int) -> str:
     return LIBC.strsignal(signal).decode()
@@ -125,13 +126,13 @@ class Isolator:
     async def __aenter__(self):
         async with boxlock:
             busy = {int(p.name) for p in self.isolate_conf.root.iterdir()}
-            avail = set(range(self.isolate_conf.max_boxes)) - busy
+            avail = set(range(self.isolate_conf.max_boxes)) - boxset
             while avail:
                 self.box_id = avail.pop()
                 self.cmd_base = ['isolate', '--box-id', str(self.box_id), '--cg']
                 cmd_init = self.cmd_base + ['--init']
                 retcode, stdout, stderr = await communicate(cmd_init)
-                if retcode == 2 and b"already exists" in stderr:
+                if retcode == 2 and b"currently in use" in stderr:
                     continue
                 if retcode != 0:  # noqa
                     raise RuntimeError("{} returned code {}: “{}”".format(
@@ -139,88 +140,92 @@ class Isolator:
                 break
             else:
                 raise RuntimeError("No isolate box ID available.")
+            boxset.add(self.box_id)
         self.path = pathlib.Path(stdout.strip().decode()) / 'box'
         self.meta_file = tempfile.NamedTemporaryFile(prefix='camisole-meta-')
         self.meta_file.__enter__()
         return self
 
     async def __aexit__(self, exc, value, tb):
-        self.stdout = b''
-        self.stderr = b''
-        if self.isolate_retcode >= 2:  # Internal error
-            raise IsolateInternalError(
-                self.cmd_run,
-                self.isolate_stdout,
-                self.isolate_stderr
-            )
-        try:
-            self.stdout = (self.path / self.stdout_file).read_bytes()[:conf['max-stdout-size']]
-            if not self.merge_outputs:
-                self.stderr = (self.path / self.stderr_file).read_bytes()[:conf['max-stderr-size']]
-        except (IOError, PermissionError) as e:
-            # Something went wrong, isolate was killed before changing the
-            # permissions or unreadable stdout/stderr
-            raise IsolateInternalError(
-                self.cmd_run,
-                self.isolate_stdout,
-                self.isolate_stderr,
-                message="Error while reading stdout/stderr: " + e.message,
-            )
+        async with boxlock:
+            self.stdout = b''
+            self.stderr = b''
+            if self.isolate_retcode >= 2:  # Internal error
+                raise IsolateInternalError(
+                    self.cmd_run,
+                    self.isolate_stdout,
+                    self.isolate_stderr
+                )
+            try:
+                self.stdout = (self.path / self.stdout_file).read_bytes()[:conf['max-stdout-size']]
+                if not self.merge_outputs:
+                    self.stderr = (self.path / self.stderr_file).read_bytes()[:conf['max-stderr-size']]
+            except (IOError, PermissionError) as e:
+                # Something went wrong, isolate was killed before changing the
+                # permissions or unreadable stdout/stderr
+                raise IsolateInternalError(
+                    self.cmd_run,
+                    self.isolate_stdout,
+                    self.isolate_stderr,
+                    message="Error while reading stdout/stderr: " + e.message,
+                )
 
-        meta_defaults = {
-            'cg-mem': 0,
-            'cg-oom-killed': 0,
-            'csw-forced': 0,
-            'csw-voluntary': 0,
-            'exitcode': 0,
-            'exitsig': 0,
-            'exitsig-message': None,
-            'killed': False,
-            'max-rss': 0,
-            'message': None,
-            'status': 'OK',
-            'time': 0.0,
-            'time-wall': 0.0,
-        }
-        with open(self.meta_file.name) as f:
-            m = (line.strip() for line in f.readlines())
-        m = dict(line.split(':', 1) for line in m if line)
-        m = {k: (type(meta_defaults[k])(v)
-                 if meta_defaults[k] is not None else v)
-             for k, v in m.items()}
-        if 'exitsig' in m:
-            m['exitsig-message'] = signal_message(m['exitsig'])
-        self.meta = {**meta_defaults, **m}
-        verbose_status = {
-            'OK': 'OK',
-            'RE': 'RUNTIME_ERROR',
-            'TO': 'TIMED_OUT',
-            'SG': 'SIGNALED',
-            'XX': 'INTERNAL_ERROR',
-        }
-        self.meta['status'] = verbose_status[self.meta['status']]
+            meta_defaults = {
+                'cg-mem': 0,
+                'cg-oom-killed': 0,
+                'csw-forced': 0,
+                'csw-voluntary': 0,
+                'exitcode': 0,
+                'exitsig': 0,
+                'exitsig-message': None,
+                'killed': False,
+                'max-rss': 0,
+                'message': None,
+                'status': 'OK',
+                'time': 0.0,
+                'time-wall': 0.0,
+            }
+            with open(self.meta_file.name) as f:
+                m = (line.strip() for line in f.readlines())
+            m = dict(line.split(':', 1) for line in m if line)
+            m = {k: (type(meta_defaults[k])(v)
+                    if meta_defaults[k] is not None else v)
+                for k, v in m.items()}
+            if 'exitsig' in m:
+                m['exitsig-message'] = signal_message(m['exitsig'])
+            self.meta = {**meta_defaults, **m}
+            verbose_status = {
+                'OK': 'OK',
+                'RE': 'RUNTIME_ERROR',
+                'TO': 'TIMED_OUT',
+                'SG': 'SIGNALED',
+                'XX': 'INTERNAL_ERROR',
+            }
+            self.meta['status'] = verbose_status[self.meta['status']]
 
-        if self.meta.get('cg-oom-killed'):
-            self.meta['status'] = 'OUT_OF_MEMORY'
+            if self.meta.get('cg-oom-killed'):
+                self.meta['status'] = 'OUT_OF_MEMORY'
 
-        for imeta, cmeta in ISOLATE_TO_CAMISOLE_META.items():
-            if imeta in self.meta:
-                self.meta[cmeta] = self.meta.pop(imeta)
+            for imeta, cmeta in ISOLATE_TO_CAMISOLE_META.items():
+                if imeta in self.meta:
+                    self.meta[cmeta] = self.meta.pop(imeta)
 
-        self.info = {
-            'stdout': self.stdout,
-            'stderr': self.stderr,
-            'exitcode': self.isolate_retcode,
-            'meta': self.meta
-        }
+            self.info = {
+                'stdout': self.stdout,
+                'stderr': self.stderr,
+                'exitcode': self.isolate_retcode,
+                'meta': self.meta
+            }
 
-        cmd_cleanup = self.cmd_base + ['--cleanup']
-        retcode, stdout, stderr = await communicate(cmd_cleanup)
-        if retcode != 0:  # noqa
-            raise RuntimeError("{} returned code {}: “{}”".format(
-                cmd_cleanup, retcode, stderr))
+            cmd_cleanup = self.cmd_base + ['--cleanup']
+            retcode, stdout, stderr = await communicate(cmd_cleanup)
+            if retcode != 0:  # noqa
+                raise RuntimeError("{} returned code {}: “{}”".format(
+                    cmd_cleanup, retcode, stderr))
 
-        self.meta_file.__exit__(exc, value, tb)
+            self.meta_file.__exit__(exc, value, tb)
+
+            boxset.discard(self.box_id)
 
     async def generate_cmd(self, cmdline, env=None, interactive=False):
         cmd_run = self.cmd_base[:]
