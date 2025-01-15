@@ -126,7 +126,7 @@ class Isolator:
     async def __aenter__(self):
         async with boxlock:
             busy = {int(p.name) for p in self.isolate_conf.root.iterdir()}
-            avail = set(range(self.isolate_conf.max_boxes)) - boxset
+            avail = set(range(self.isolate_conf.max_boxes)) - boxset - busy
             while avail:
                 self.box_id = avail.pop()
                 self.cmd_base = ['isolate', '--box-id', str(self.box_id), '--cg']
@@ -224,6 +224,13 @@ class Isolator:
                     cmd_cleanup, retcode, stderr))
 
             self.meta_file.__exit__(exc, value, tb)
+
+            while True:
+                busy = {int(p.name) for p in self.isolate_conf.root.iterdir()}
+                if self.box_id in busy:
+                    await asyncio.sleep(0.1)
+                else:
+                    break
 
             boxset.discard(self.box_id)
 
