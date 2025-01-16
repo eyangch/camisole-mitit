@@ -130,6 +130,7 @@ class Isolator:
         self.merge_outputs = False
 
     async def __aenter__(self):
+        global box_cnt
         async with boxlock:
             avail = set(range(num_cores)) - coreset
             if len(avail) == 0:
