@@ -13,6 +13,10 @@ max-body-size: 50000000  # 50 MB
 max-stdout-size: 20000000  # 20 MB
 max-stderr-size: 20000000  # 20 MB
 
+# cores / boxes for isolate
+num-cores: 4
+num-boxes: 100
+
 # extra directories to append (in this order) to PYTHONPATH
 syspath:
   - ~/.local/share/camisole/languages

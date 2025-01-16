@@ -1,0 +1,153 @@
+# This is a configuration file for Isolate
+
+# All sandboxes are created under this directory.
+# To avoid symlink attacks, this directory and all its ancestors
+# must be writeable only to root.
+box_root = /var/local/lib/isolate
+
+# Directory where lock files are created.
+lock_root = /run/isolate/locks
+
+# Control group under which we place our subgroups
+# Either an explicit path to a subdirectory in cgroupfs, or "auto:file" to read
+# the path from "file", where it is put by isolate-cg-helper.
+# cg_root = /sys/fs/cgroup/isolate.slice/isolate.service
+cg_root = auto:/run/isolate/cgroup
+
+# Block of UIDs and GIDs reserved for sandboxes
+first_uid = 60000
+first_gid = 60000
+num_boxes = 1200
+
+# Only root can create new sandboxes (default: 0=everybody can)
+#restricted_init = 1
+
+# Per-box settings of the set of allowed CPUs and NUMA nodes
+# (see linux/Documentation/cgroups/cpusets.txt for precise syntax)
+
+#box0.cpus = 4-7
+#box0.mems = 1
+box0.cpus = 0
+box1.cpus = 1
+box2.cpus = 2
+box3.cpus = 3
+box4.cpus = 0
+box5.cpus = 1
+box6.cpus = 2
+box7.cpus = 3
+box8.cpus = 0
+box9.cpus = 1
+box10.cpus = 2
+box11.cpus = 3
+box12.cpus = 0
+box13.cpus = 1
+box14.cpus = 2
+box15.cpus = 3
+box16.cpus = 0
+box17.cpus = 1
+box18.cpus = 2
+box19.cpus = 3
+box20.cpus = 0
+box21.cpus = 1
+box22.cpus = 2
+box23.cpus = 3
+box24.cpus = 0
+box25.cpus = 1
+box26.cpus = 2
+box27.cpus = 3
+box28.cpus = 0
+box29.cpus = 1
+box30.cpus = 2
+box31.cpus = 3
+box32.cpus = 0
+box33.cpus = 1
+box34.cpus = 2
+box35.cpus = 3
+box36.cpus = 0
+box37.cpus = 1
+box38.cpus = 2
+box39.cpus = 3
+box40.cpus = 0
+box41.cpus = 1
+box42.cpus = 2
+box43.cpus = 3
+box44.cpus = 0
+box45.cpus = 1
+box46.cpus = 2
+box47.cpus = 3
+box48.cpus = 0
+box49.cpus = 1
+box50.cpus = 2
+box51.cpus = 3
+box52.cpus = 0
+box53.cpus = 1
+box54.cpus = 2
+box55.cpus = 3
+box56.cpus = 0
+box57.cpus = 1
+box58.cpus = 2
+box59.cpus = 3
+box60.cpus = 0
+box61.cpus = 1
+box62.cpus = 2
+box63.cpus = 3
+box64.cpus = 0
+box65.cpus = 1
+box66.cpus = 2
+box67.cpus = 3
+box68.cpus = 0
+box69.cpus = 1
+box70.cpus = 2
+box71.cpus = 3
+box72.cpus = 0
+box73.cpus = 1
+box74.cpus = 2
+box75.cpus = 3
+box76.cpus = 0
+box77.cpus = 1
+box78.cpus = 2
+box79.cpus = 3
+box80.cpus = 0
+box81.cpus = 1
+box82.cpus = 2
+box83.cpus = 3
+box84.cpus = 0
+box85.cpus = 1
+box86.cpus = 2
+box87.cpus = 3
+box88.cpus = 0
+box89.cpus = 1
+box90.cpus = 2
+box91.cpus = 3
+box92.cpus = 0
+box93.cpus = 1
+box94.cpus = 2
+box95.cpus = 3
+box96.cpus = 0
+box97.cpus = 1
+box98.cpus = 2
+box99.cpus = 3
+box100.cpus = 0
+box101.cpus = 1
+box102.cpus = 2
+box103.cpus = 3
+box104.cpus = 0
+box105.cpus = 1
+box106.cpus = 2
+box107.cpus = 3
+box108.cpus = 0
+box109.cpus = 1
+box110.cpus = 2
+box111.cpus = 3
+box112.cpus = 0
+box113.cpus = 1
+box114.cpus = 2
+box115.cpus = 3
+box116.cpus = 0
+box117.cpus = 1
+box118.cpus = 2
+box119.cpus = 3
+box120.cpus = 0
+box121.cpus = 1
+box122.cpus = 2
+box123.cpus = 3

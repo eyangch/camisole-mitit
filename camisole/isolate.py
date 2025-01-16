@@ -36,6 +36,12 @@ LIBC.strsignal.restype = ctypes.c_char_p
 
 boxlock = asyncio.Lock()
 boxset = set()
+coreset = set()
+
+num_cores = conf['num-cores']
+num_box_loops = conf['num-boxes'] // num_cores
+
+box_cnt = 0
 
 def signal_message(signal: int) -> str:
     return LIBC.strsignal(signal).decode()
@@ -125,10 +131,13 @@ class Isolator:
 
     async def __aenter__(self):
         async with boxlock:
-            busy = {int(p.name) for p in self.isolate_conf.root.iterdir()}
-            avail = set(range(self.isolate_conf.max_boxes)) - boxset - busy
-            while avail:
-                self.box_id = avail.pop()
+            avail = set(range(num_cores)) - coreset
+            if len(avail) == 0:
+                print("Warning: No isolate core available, choosing core 0")
+                avail = set([0])
+            while True:
+                self.box_id = avail.pop() + (num_cores * (box_cnt % num_box_loops))
+                box_cnt += 1
                 self.cmd_base = ['isolate', '--box-id', str(self.box_id), '--cg']
                 cmd_init = self.cmd_base + ['--init']
                 retcode, stdout, stderr = await communicate(cmd_init)
@@ -138,9 +147,9 @@ class Isolator:
                     raise RuntimeError("{} returned code {}: “{}”".format(
                         cmd_init, retcode, stderr))
                 break
-            else:
-                raise RuntimeError("No isolate box ID available.")
+
             boxset.add(self.box_id)
+            coreset.add(self.box_id % num_cores)
         self.path = pathlib.Path(stdout.strip().decode()) / 'box'
         self.meta_file = tempfile.NamedTemporaryFile(prefix='camisole-meta-')
         self.meta_file.__enter__()
@@ -233,6 +242,7 @@ class Isolator:
                     break
 
             boxset.discard(self.box_id)
+            coreset.discard(self.box_id % num_cores)
 
     async def generate_cmd(self, cmdline, env=None, interactive=False):
         cmd_run = self.cmd_base[:]
