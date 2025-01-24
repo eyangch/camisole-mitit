@@ -136,13 +136,19 @@ class Isolator:
             if len(avail) == 0:
                 print("Warning: No isolate core available, choosing core 0")
                 avail = set([0])
+            use_core = avail.pop()
             while True:
-                self.box_id = avail.pop() + (num_cores * (box_cnt % num_box_loops))
+                self.box_id = use_core + (num_cores * (box_cnt % num_box_loops))
                 box_cnt += 1
+                if self.box_id in boxset:
+                    continue
                 self.cmd_base = ['isolate', '--box-id', str(self.box_id), '--cg']
                 cmd_init = self.cmd_base + ['--init']
                 retcode, stdout, stderr = await communicate(cmd_init)
                 if retcode == 2 and b"currently in use" in stderr:
+                    print("currently in use?")
+                    print(stderr)
+                    print(self.box_id)
                     continue
                 if retcode != 0:  # noqa
                     raise RuntimeError("{} returned code {}: “{}”".format(
@@ -166,19 +172,26 @@ class Isolator:
                     self.isolate_stdout,
                     self.isolate_stderr
                 )
-            try:
-                self.stdout = (self.path / self.stdout_file).read_bytes()[:conf['max-stdout-size']]
-                if not self.merge_outputs:
-                    self.stderr = (self.path / self.stderr_file).read_bytes()[:conf['max-stderr-size']]
-            except (IOError, PermissionError) as e:
-                # Something went wrong, isolate was killed before changing the
-                # permissions or unreadable stdout/stderr
-                raise IsolateInternalError(
-                    self.cmd_run,
-                    self.isolate_stdout,
-                    self.isolate_stderr,
-                    message="Error while reading stdout/stderr: " + e.message,
-                )
+            file_failures = 0
+            while True:
+                try:
+                    self.stdout = (self.path / self.stdout_file).read_bytes()[:conf['max-stdout-size']]
+                    if not self.merge_outputs:
+                        self.stderr = (self.path / self.stderr_file).read_bytes()[:conf['max-stderr-size']]
+                    break
+                except (IOError, PermissionError) as e:
+                    # Something went wrong, isolate was killed before changing the
+                    # permissions or unreadable stdout/stderr
+                    file_failures += 1
+                    await asyncio.sleep(0.5)
+                    print("file failure")
+                    if file_failures > 10:
+                        raise IsolateInternalError(
+                            self.cmd_run,
+                            self.isolate_stdout,
+                            self.isolate_stderr,
+                            message="Error while reading stdout/stderr: " + str(e),
+                        )
 
             meta_defaults = {
                 'cg-mem': 0,
