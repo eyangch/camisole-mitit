@@ -196,12 +196,38 @@ class Lang(metaclass=MetaLang):
         tests = self.opts.get('tests', [{}])
         if tests:
             result['tests'] = [{}] * len(tests)
+        is_shorted = False
         for i, test in enumerate(tests):
+            test_name = test.get('name', 'test{:03d}'.format(i))
+            if is_shorted:
+                short_meta_defaults = {
+                    'cg-mem': 0,
+                    'cg-oom-killed': 0,
+                    'csw-forced': 0,
+                    'csw-voluntary': 0,
+                    'exitcode': 0,
+                    'exitsig': 0,
+                    'exitsig-message': None,
+                    'killed': False,
+                    'max-rss': 0,
+                    'message': None,
+                    'status': 'SHORT_CIRCUIT',
+                    'time': 0.0,
+                    'time-wall': 0.0,
+                }
+                result['tests'][i] = {
+                    'name': test_name,
+                    'meta': short_meta_defaults
+                }
+                continue
             retcode, info = await self.execute(binary, test)
             result['tests'][i] = {
-                'name': test.get('name', 'test{:03d}'.format(i)),
+                'name': test_name,
                 **info
             }
+
+            if info['meta']['status'] in ['TIMED_OUT', 'RUNTIME_ERROR']:
+                is_shorted = True
 
             if retcode != 0 and (
                     test.get('fatal', False) or
@@ -353,16 +379,47 @@ class InteractiveLang:
         if tests:
             result_prog['tests'] = [{}] * len(tests)
             result_interact['tests'] = [{}] * len(tests)
+        is_shorted = False
         for i, test in enumerate(tests):
+            test_name = test.get('name', 'test{:03d}'.format(i))
+            if is_shorted:
+                short_meta_defaults = {
+                    'cg-mem': 0,
+                    'cg-oom-killed': 0,
+                    'csw-forced': 0,
+                    'csw-voluntary': 0,
+                    'exitcode': 0,
+                    'exitsig': 0,
+                    'exitsig-message': None,
+                    'killed': False,
+                    'max-rss': 0,
+                    'message': None,
+                    'status': 'SHORT_CIRCUIT',
+                    'time': 0.0,
+                    'time-wall': 0.0,
+                }
+                result_prog['tests'][i] = {
+                    'name': test_name,
+                    'meta': short_meta_defaults
+                }
+                result_interact['tests'][i] = {
+                    'name': test_name,
+                    'meta': short_meta_defaults
+                }
+                continue
+            
             prog_retcode, prog_info, interact_retcode, interact_info = await self.execute(binary_prog, binary_interact, test)
             result_prog['tests'][i] = {
-                'name': test.get('name', 'test{:03d}'.format(i)),
+                'name': test_name,
                 **prog_info
             }
             result_interact['tests'][i] = {
-                'name': test.get('name', 'test{:03d}'.format(i)),
+                'name': test_name,
                 **interact_info
             }
+
+            if prog_info['meta']['status'] in ['TIMED_OUT', 'RUNTIME_ERROR']:
+                is_shorted = True
 
             if (prog_retcode != 0 or interact_retcode != 0) and (
                     test.get('fatal', False) or
