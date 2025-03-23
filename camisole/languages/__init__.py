@@ -42,6 +42,7 @@ __all__ = [
     #'d',
     #'csharp',
     'cxx',
+    'cxx23',
     #'go',
     #'haskell',
     'java',
